@@ -4,6 +4,7 @@ import shutil
 import tempfile
 import urllib.parse
 import json
+import re
 from bs4 import BeautifulSoup
 from curl_cffi import requests
 
@@ -24,6 +25,7 @@ if not os.path.exists(PROFILE_JSON):
     PROFILE_JSON = "/home/container/files/cfsolve-repo/profiles/safari-26-ios.json"
 
 BASE_LK21 = "https://tv12.lk21official.cc"
+BASE_SERIES = "https://tv.nontondrama.vip"
 DEFAULT_SITEKEY = "0x4AAAAAAD1B9GOEfUpOVP4w"
 
 LAST_ERROR = ""
@@ -90,7 +92,7 @@ def solve_turnstile_token(page_url: str, sitekey: str = DEFAULT_SITEKEY) -> str:
         shutil.rmtree(out_dir, ignore_errors=True)
 
 def search_movies(query: str):
-    """Cari film via backend LK21 (gudangvape.com API)"""
+    """Cari film & series via backend LK21 (gudangvape.com API)"""
     search_url = f"https://gudangvape.com/search.php?s={urllib.parse.quote(query)}&page=1"
     raw_json = fetch_with_cfsolve(search_url)
     if not raw_json:
@@ -99,20 +101,152 @@ def search_movies(query: str):
     try:
         data = json.loads(raw_json)
         items = data.get("data", [])
-        movies = []
+        results = []
         for it in items[:8]:
-            movies.append({
+            mtype = it.get("type", "movie")
+            results.append({
                 "title": it.get("title", ""),
                 "slug": it.get("slug", ""),
                 "rating": it.get("rating", "-"),
                 "year": it.get("year", "-"),
-                "type": it.get("type", "movie"),
+                "type": mtype,
+                "episodes_count": it.get("episode", 0),
                 "poster": f"https://poster.assetsy.de/wp-content/uploads/{it.get('poster', '')}" if it.get("poster") else ""
             })
-        return movies
+        return results
     except Exception as e:
         print(f"[parse search error] {e}")
         return []
+
+def get_series_detail(slug: str):
+    """Ambil detail series/drakor & daftar episode dari tv.nontondrama.vip"""
+    series_url = f"{BASE_SERIES}/{slug}"
+    html = fetch_with_cfsolve(series_url)
+    if not html:
+        return None
+
+    soup = BeautifulSoup(html, "html.parser")
+    title_tag = soup.find("h1") or soup.find("title")
+    title = title_tag.text.strip() if title_tag else slug
+
+    synopsis = ""
+    syn_tag = soup.find(class_="synopsis") or soup.find("blockquote")
+    if syn_tag:
+        synopsis = syn_tag.text.strip()
+    else:
+        for p in soup.find_all("p"):
+            txt = p.text.strip()
+            if len(txt) > 50 and "GANTI PLAYER" not in txt:
+                synopsis = txt
+                break
+
+    poster = ""
+    for img in soup.find_all("img"):
+        src = img.get("src") or img.get("data-src")
+        if src and "poster.assetsy.de" in src:
+            poster = src
+            break
+
+    # Ekstrak daftar episode
+    episodes = []
+    seen_slugs = set()
+    for a in soup.find_all("a", href=True):
+        href = a["href"].strip()
+        if re.search(r"episode-[0-9]+", href, re.I):
+            ep_slug = href.strip("/").split("/")[-1]
+            if ep_slug not in seen_slugs and ep_slug != slug:
+                seen_slugs.add(ep_slug)
+                # Ambil nomor episode dari text atau slug
+                ep_match = re.search(r"episode-([0-9]+)", ep_slug, re.I)
+                ep_num = ep_match.group(1) if ep_match else str(len(episodes) + 1)
+                season_match = re.search(r"season-([0-9]+)", ep_slug, re.I)
+                season_num = season_match.group(1) if season_match else "1"
+                
+                episodes.append({
+                    "season": int(season_num),
+                    "episode": int(ep_num),
+                    "label": f"S{season_num} Ep {ep_num}",
+                    "slug": ep_slug
+                })
+
+    # Urutkan episode dari awal ke akhir
+    episodes.sort(key=lambda x: (x["season"], x["episode"]))
+
+    return {
+        "title": title,
+        "poster": poster,
+        "synopsis": synopsis,
+        "type": "series",
+        "episodes": episodes
+    }
+
+def get_download_links_from_gateway(dl_gateway: str):
+    """Ambil direct download link dari gateway dadadidi.de"""
+    parts = dl_gateway.strip("/").split("/")
+    gw_slug = parts[-1]
+
+    downloads = []
+    turnstile_token = solve_turnstile_token(f"https://dadadidi.de/get/{gw_slug}", DEFAULT_SITEKEY)
+    if turnstile_token:
+        headers = {
+            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Mobile/15E148 Safari/604.1",
+            "Referer": f"https://dadadidi.de/get/{gw_slug}",
+            "Origin": "https://dadadidi.de",
+            "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+            "X-Requested-With": "XMLHttpRequest",
+        }
+        data = {"slug": gw_slug, "cf-turnstile-response": turnstile_token}
+        try:
+            r = requests.post(
+                f"https://dadadidi.de/verifying.php?slug={gw_slug}",
+                headers=headers,
+                data=data,
+                impersonate="chrome124",
+                timeout=15
+            )
+            if r.status_code == 200 and "table" in r.text:
+                table_soup = BeautifulSoup(r.text, "html.parser")
+                for tr in table_soup.find_all("tr"):
+                    cols = tr.find_all("td")
+                    if len(cols) >= 2:
+                        prov = cols[0].text.strip()
+                        a_tag = cols[1].find("a")
+                        if a_tag:
+                            downloads.append({
+                                "provider": prov,
+                                "quality": a_tag.text.strip(),
+                                "url": a_tag.get("href")
+                            })
+        except Exception as e:
+            print(f"[verifying.php error] {e}")
+            
+    return downloads
+
+def get_episode_download(ep_slug: str):
+    """Ambil link download untuk satu episode spesifik dari tv.nontondrama.vip"""
+    ep_url = f"{BASE_SERIES}/{ep_slug}"
+    html = fetch_with_cfsolve(ep_url)
+    if not html:
+        return {"downloads": [], "title": ep_slug}
+
+    soup = BeautifulSoup(html, "html.parser")
+    title_tag = soup.find("h1") or soup.find("title")
+    title = title_tag.text.strip() if title_tag else ep_slug
+
+    dl_gateway = None
+    for a in soup.find_all("a", href=True):
+        if "dadadidi.de" in a["href"]:
+            dl_gateway = a["href"]
+            break
+
+    downloads = []
+    if dl_gateway:
+        downloads = get_download_links_from_gateway(dl_gateway)
+
+    return {
+        "title": title,
+        "downloads": downloads
+    }
 
 def get_movie_detail(slug: str):
     """Ambil detail film & direct download link"""
@@ -145,54 +279,19 @@ def get_movie_detail(slug: str):
 
     # Cari link gateway download (dadadidi.de)
     dl_gateway = None
-    for a in soup.find_all("a"):
-        href = a.get("href", "")
-        if "dadadidi.de" in href:
-            dl_gateway = href
+    for a in soup.find_all("a", href=True):
+        if "dadadidi.de" in a["href"]:
+            dl_gateway = a["href"]
             break
             
     downloads = []
     if dl_gateway:
-        parts = dl_gateway.strip("/").split("/")
-        gw_slug = parts[-1]
-        
-        turnstile_token = solve_turnstile_token(f"https://dadadidi.de/get/{gw_slug}", DEFAULT_SITEKEY)
-        if turnstile_token:
-            headers = {
-                "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Mobile/15E148 Safari/604.1",
-                "Referer": f"https://dadadidi.de/get/{gw_slug}",
-                "Origin": "https://dadadidi.de",
-                "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-                "X-Requested-With": "XMLHttpRequest",
-            }
-            data = {"slug": gw_slug, "cf-turnstile-response": turnstile_token}
-            try:
-                r = requests.post(
-                    f"https://dadadidi.de/verifying.php?slug={gw_slug}",
-                    headers=headers,
-                    data=data,
-                    impersonate="chrome124",
-                    timeout=15
-                )
-                if r.status_code == 200 and "table" in r.text:
-                    table_soup = BeautifulSoup(r.text, "html.parser")
-                    for tr in table_soup.find_all("tr"):
-                        cols = tr.find_all("td")
-                        if len(cols) >= 2:
-                            prov = cols[0].text.strip()
-                            a_tag = cols[1].find("a")
-                            if a_tag:
-                                downloads.append({
-                                    "provider": prov,
-                                    "quality": a_tag.text.strip(),
-                                    "url": a_tag.get("href")
-                                })
-            except Exception as e:
-                print(f"[verifying.php error] {e}")
+        downloads = get_download_links_from_gateway(dl_gateway)
 
     return {
         "title": title,
         "poster": poster,
         "synopsis": synopsis,
+        "type": "movie",
         "downloads": downloads
     }
