@@ -1,0 +1,49 @@
+name: Build x86_64 Challenge Binary
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/**'
+
+jobs:
+  build-x86_64:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout cirofilm-bot
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake clang libclang-dev llvm-dev build-essential
+
+      - name: Clone cfsolve upstream
+        run: |
+          git clone https://github.com/chris124567/cfsolve.git cfsolve-build
+          cd cfsolve-build
+          # Patch public visibility like our local repo
+          sed -i 's/pub(super) http: Client/pub http: Client/g' src/http/client.rs
+
+      - name: Setup Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build challenge binary on x86_64
+        working-directory: cfsolve-build
+        run: |
+          cargo build --release --bin challenge
+          strip target/release/challenge
+          ls -lh target/release/challenge
+
+      - name: Commit & push x86_64 binary
+        run: |
+          cp cfsolve-build/target/release/challenge bin/challenge
+          git config user.name "ciroxtreme"
+          git config user.email "ciroxtreme@gmail.com"
+          git add bin/challenge
+          git commit -m "fix(bin): update challenge binary compiled for x86_64 (Bot-Hosting architecture)" || echo "No changes"
+          git push origin main
