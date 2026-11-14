@@ -40,7 +40,7 @@ def fetch_with_cfsolve(target_url: str) -> str:
             "--solve",
             "--fingerprint", PROFILE_JSON
         ]
-        res = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=65)
         if res.returncode != 0:
             LAST_ERROR = f"Exit code {res.returncode}: {res.stderr[:200]}"
             print(f"[cfsolve returncode != 0] {res.stderr}")
@@ -74,7 +74,7 @@ def solve_turnstile_token(page_url: str, sitekey: str = DEFAULT_SITEKEY) -> str:
             "--solve",
             "--fingerprint", PROFILE_JSON
         ]
-        res = subprocess.run(cmd, capture_output=True, text=True, timeout=25)
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=50)
         lines = res.stdout.strip().split("\n")
         if lines:
             token = lines[-1].strip()
