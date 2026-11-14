@@ -312,3 +312,39 @@ def get_movie_detail(slug: str):
         "type": "movie",
         "downloads": downloads
     }
+
+
+def search_drakorkita(query: str):
+    """Cari drama di drakor.kita.mobi"""
+    url = f"https://drakor.kita.mobi/all?q={urllib.parse.quote(query)}"
+    html = fetch_with_cfsolve(url)
+    if not html:
+        return []
+        
+    soup = BeautifulSoup(html, "html.parser")
+    results = []
+    seen = set()
+    for a in soup.find_all("a", href=True):
+        href = a["href"]
+        if "/detail/" in href and href not in seen:
+            seen.add(href)
+            # Bersihkan judul teks
+            title_text = a.text.strip()
+            # Pisahkan teks durasi & tahun jika ada
+            lines = [l.strip() for l in title_text.splitlines() if l.strip()]
+            main_title = lines[1] if len(lines) > 1 else (lines[0] if lines else href)
+            # Ambil slug
+            slug = href.strip("/").split("/")[-1]
+            img = a.find("img")
+            poster = img.get("src") or img.get("data-src") if img else ""
+            
+            results.append({
+                "source": "drakorkita",
+                "title": main_title,
+                "slug": slug,
+                "detail_url": f"https://drakor.kita.mobi{href}",
+                "poster": poster
+            })
+            if len(results) >= 6:
+                break
+    return results
