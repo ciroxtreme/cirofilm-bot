@@ -2,6 +2,7 @@ import os
 import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 import lk21_engine
+import diag
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "9155074189:AAF-D3xWr7r0Qsn3NGD8J-mFwvSjL_XNGug")
 bot = telebot.TeleBot(BOT_TOKEN, parse_mode="HTML")
@@ -20,6 +21,11 @@ def send_welcome(message):
     )
     bot.reply_to(message, text)
 
+@bot.message_handler(commands=["diag", "status"])
+def send_diag(message):
+    report = diag.run_diag()
+    bot.reply_to(message, f"<pre>{report}</pre>")
+
 @bot.message_handler(func=lambda message: True)
 def handle_search(message):
     query = message.text.strip()
@@ -32,8 +38,9 @@ def handle_search(message):
     try:
         movies = lk21_engine.search_movies(query)
         if not movies:
+            err_detail = getattr(lk21_engine, "LAST_ERROR", "Tidak ada error tercatat")
             bot.edit_message_text(
-                f"❌ Film dengan judul <b>{query}</b> tidak ditemukan di LK21.",
+                f"❌ Film dengan judul <b>{query}</b> tidak ditemukan di LK21.\n\n<code>Info Solver: {err_detail}</code>",
                 chat_id=message.chat.id,
                 message_id=wait_msg.message_id
             )
@@ -66,8 +73,9 @@ def handle_download_callback(call):
     try:
         detail = lk21_engine.get_movie_detail(slug)
         if not detail:
+            err_detail = getattr(lk21_engine, "LAST_ERROR", "Tidak ada error tercatat")
             bot.edit_message_text(
-                "❌ Gagal memuat detail film.",
+                f"❌ Gagal memuat detail film.\n\n<code>Info Solver: {err_detail}</code>",
                 chat_id=call.message.chat.id,
                 message_id=status_msg.message_id
             )

@@ -11,6 +11,13 @@ CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 CHALLENGE_BIN = os.path.join(CURRENT_DIR, "bin", "challenge")
 PROFILE_JSON = os.path.join(CURRENT_DIR, "profiles", "safari-26-ios.json")
 
+# Pastikan permission executable
+if os.path.exists(CHALLENGE_BIN):
+    try:
+        os.chmod(CHALLENGE_BIN, 0o755)
+    except Exception:
+        pass
+
 if not os.path.exists(CHALLENGE_BIN):
     CHALLENGE_BIN = "/home/container/files/cfsolve-repo/target/release/challenge"
 if not os.path.exists(PROFILE_JSON):
@@ -19,8 +26,11 @@ if not os.path.exists(PROFILE_JSON):
 BASE_LK21 = "https://tv12.lk21official.cc"
 DEFAULT_SITEKEY = "0x4AAAAAAD1B9GOEfUpOVP4w"
 
+LAST_ERROR = ""
+
 def fetch_with_cfsolve(target_url: str) -> str:
     """Tembus Cloudflare Challenge halaman menggunakan cfsolve"""
+    global LAST_ERROR
     out_dir = tempfile.mkdtemp(prefix="cfsolve_page_")
     try:
         cmd = [
@@ -31,12 +41,20 @@ def fetch_with_cfsolve(target_url: str) -> str:
             "--fingerprint", PROFILE_JSON
         ]
         res = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        if res.returncode != 0:
+            LAST_ERROR = f"Exit code {res.returncode}: {res.stderr[:200]}"
+            print(f"[cfsolve returncode != 0] {res.stderr}")
+            
         cleared_file = os.path.join(out_dir, "cleared.html")
         if os.path.exists(cleared_file):
             with open(cleared_file, "r", encoding="utf-8", errors="ignore") as f:
                 return f.read()
+        else:
+            if not LAST_ERROR:
+                LAST_ERROR = f"cleared.html not found. stderr: {res.stderr[:200]}"
         return ""
     except Exception as e:
+        LAST_ERROR = f"Exception: {e}"
         print(f"[cfsolve error] {e}")
         return ""
     finally:
@@ -44,6 +62,7 @@ def fetch_with_cfsolve(target_url: str) -> str:
 
 def solve_turnstile_token(page_url: str, sitekey: str = DEFAULT_SITEKEY) -> str:
     """Selesaikan Turnstile widget untuk mendapatkan validasi token"""
+    global LAST_ERROR
     out_dir = tempfile.mkdtemp(prefix="cfsolve_widget_")
     try:
         cmd = [
@@ -61,8 +80,10 @@ def solve_turnstile_token(page_url: str, sitekey: str = DEFAULT_SITEKEY) -> str:
             token = lines[-1].strip()
             if len(token) > 100:
                 return token
+        LAST_ERROR = f"Widget solve failed. stderr: {res.stderr[:200]}"
         return ""
     except Exception as e:
+        LAST_ERROR = f"Widget Exception: {e}"
         print(f"[turnstile error] {e}")
         return ""
     finally:
