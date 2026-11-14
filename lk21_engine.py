@@ -147,27 +147,47 @@ def get_series_detail(slug: str):
             poster = src
             break
 
-    # Ekstrak daftar episode
+    # Ekstrak daftar episode lengkap dari JSON #season-data
     episodes = []
-    seen_slugs = set()
-    for a in soup.find_all("a", href=True):
-        href = a["href"].strip()
-        if re.search(r"episode-[0-9]+", href, re.I):
-            ep_slug = href.strip("/").split("/")[-1]
-            if ep_slug not in seen_slugs and ep_slug != slug:
-                seen_slugs.add(ep_slug)
-                # Ambil nomor episode dari text atau slug
-                ep_match = re.search(r"episode-([0-9]+)", ep_slug, re.I)
-                ep_num = ep_match.group(1) if ep_match else str(len(episodes) + 1)
-                season_match = re.search(r"season-([0-9]+)", ep_slug, re.I)
-                season_num = season_match.group(1) if season_match else "1"
-                
-                episodes.append({
-                    "season": int(season_num),
-                    "episode": int(ep_num),
-                    "label": f"S{season_num} Ep {ep_num}",
-                    "slug": ep_slug
-                })
+    season_el = soup.find(id="season-data")
+    if season_el:
+        try:
+            season_json = json.loads(season_el.string or season_el.text)
+            for s_num, ep_list in season_json.items():
+                s_int = int(s_num)
+                for ep_item in ep_list:
+                    ep_no = int(ep_item.get("episode_no", 0))
+                    ep_slug = ep_item.get("slug", "")
+                    if ep_slug:
+                        episodes.append({
+                            "season": s_int,
+                            "episode": ep_no,
+                            "label": f"S{s_int} Ep {ep_no}",
+                            "slug": ep_slug
+                        })
+        except Exception as e:
+            print(f"[season-data parse error] {e}")
+
+    # Fallback jika season-data tidak ada
+    if not episodes:
+        seen_slugs = set()
+        for a in soup.find_all("a", href=True):
+            href = a["href"].strip()
+            if re.search(r"episode-[0-9]+", href, re.I):
+                ep_slug = href.strip("/").split("/")[-1]
+                if ep_slug not in seen_slugs and ep_slug != slug:
+                    seen_slugs.add(ep_slug)
+                    ep_match = re.search(r"episode-([0-9]+)", ep_slug, re.I)
+                    ep_num = ep_match.group(1) if ep_match else str(len(episodes) + 1)
+                    season_match = re.search(r"season-([0-9]+)", ep_slug, re.I)
+                    season_num = season_match.group(1) if season_match else "1"
+                    
+                    episodes.append({
+                        "season": int(season_num),
+                        "episode": int(ep_num),
+                        "label": f"S{season_num} Ep {ep_num}",
+                        "slug": ep_slug
+                    })
 
     # Urutkan episode dari awal ke akhir
     episodes.sort(key=lambda x: (x["season"], x["episode"]))
