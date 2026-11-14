@@ -1,5 +1,5 @@
 import os
-import time
+import itertools
 import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 import lk21_engine
@@ -10,13 +10,14 @@ bot = telebot.TeleBot(BOT_TOKEN, parse_mode="HTML")
 
 print("🤖 Cirofilm_bot is initializing (Movies & TV Series Edition)...")
 
-# Cache memori untuk callback DrakorKita
+# Cache memori untuk callback DrakorKita dengan atomic counter (anti-collision)
+_dk_counter = itertools.count(1)
 DK_CACHE = {}
 
 def dk_cache_put(data):
-    key = f"c_{int(time.time() * 1000) % 10000000}"
-    if len(DK_CACHE) > 500:
-        for k in list(DK_CACHE.keys())[:100]:
+    key = f"c_{next(_dk_counter)}"
+    if len(DK_CACHE) > 1000:
+        for k in list(DK_CACHE.keys())[:200]:
             DK_CACHE.pop(k, None)
     DK_CACHE[key] = data
     return key

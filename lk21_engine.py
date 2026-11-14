@@ -324,29 +324,59 @@ def search_drakorkita(query: str):
     soup = BeautifulSoup(html, "html.parser")
     results = []
     seen = set()
-    for a in soup.find_all("a", href=True):
-        href = a["href"]
-        if "/detail/" in href and href not in seen:
-            seen.add(href)
-            # Bersihkan judul teks
-            title_text = a.text.strip()
-            # Pisahkan teks durasi & tahun jika ada
-            lines = [l.strip() for l in title_text.splitlines() if l.strip()]
-            main_title = lines[1] if len(lines) > 1 else (lines[0] if lines else href)
-            # Ambil slug
-            slug = href.strip("/").split("/")[-1]
-            img = a.find("img")
-            poster = img.get("src") or img.get("data-src") if img else ""
+    cards = soup.find_all(class_="card")
+    for card in cards:
+        a_tag = card.find("a", href=True)
+        if not a_tag or "/detail/" not in a_tag["href"]:
+            continue
+        slug = a_tag["href"].split("/detail/")[-1].strip("/")
+        if slug in seen:
+            continue
+        seen.add(slug)
+        
+        titit = card.find(class_="titit")
+        if titit:
+            title = titit.decode_contents().split("<br")[0].strip()
+        else:
+            title = a_tag.get("title", slug)
+            title = title.replace("Streaming Drama Korea ", "").replace(" Subtitle Indonesia", "").strip()
             
-            results.append({
-                "source": "drakorkita",
-                "title": main_title,
-                "slug": slug,
-                "detail_url": f"https://drakor.kita.mobi{href}",
-                "poster": poster
-            })
-            if len(results) >= 6:
-                break
+        img = card.find("img", class_="poster") or card.find("img")
+        poster = img.get("src") or img.get("data-src") if img else ""
+        
+        results.append({
+            "source": "drakorkita",
+            "title": title,
+            "slug": slug,
+            "detail_url": f"https://drakor.kita.mobi/detail/{slug}/",
+            "poster": poster
+        })
+        if len(results) >= 6:
+            break
+            
+    # Fallback jika class card tidak ada
+    if not results:
+        for a in soup.find_all("a", href=True):
+            href = a["href"]
+            if "/detail/" in href:
+                slug = href.strip("/").split("/")[-1]
+                if slug in seen:
+                    continue
+                seen.add(slug)
+                title_text = a.text.strip()
+                lines = [l.strip() for l in title_text.splitlines() if l.strip()]
+                main_title = lines[1] if len(lines) > 1 else (lines[0] if lines else href)
+                img = a.find("img")
+                poster = img.get("src") or img.get("data-src") if img else ""
+                results.append({
+                    "source": "drakorkita",
+                    "title": main_title,
+                    "slug": slug,
+                    "detail_url": f"https://drakor.kita.mobi{href}",
+                    "poster": poster
+                })
+                if len(results) >= 6:
+                    break
     return results
 
 def get_drakorkita_episodes(slug: str):
