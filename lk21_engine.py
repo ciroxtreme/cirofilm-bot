@@ -348,3 +348,96 @@ def search_drakorkita(query: str):
             if len(results) >= 6:
                 break
     return results
+
+def get_drakorkita_episodes(slug: str):
+    """Ambil daftar episode & link kualitas dari drakor.kita.mobi"""
+    url = f"https://drakor.kita.mobi/detail/{slug}/"
+    html = fetch_with_cfsolve(url)
+    if not html:
+        return None
+    soup = BeautifulSoup(html, "html.parser")
+    
+    # Title
+    title = slug
+    for h in soup.find_all("h1"):
+        t = h.text.strip()
+        if "Nonton " in t and "Subtitle Indonesia" in t:
+            cleaned = t.replace("Nonton ", "")
+            if " Subtitle Indonesia" in cleaned:
+                cleaned = cleaned.split(" Subtitle Indonesia")[0]
+            title = cleaned.strip()
+            break
+            
+    # Synopsis
+    desc = soup.find(class_="desc-wrap") or soup.find(class_="mv-description")
+    synopsis = desc.text.strip() if desc else ""
+    
+    # Poster
+    poster = ""
+    for img in soup.find_all("img"):
+        src = img.get("src", "")
+        if "image.tmdb.org" in src:
+            poster = src
+            break
+            
+    # Movie ID
+    movie_id = None
+    m = re.findall(r"loadEpisode\(['\"]([^'\"]+)['\"]", html)
+    if m:
+        movie_id = m[0]
+        
+    if not movie_id:
+        return None
+        
+    # Fetch all episode download options via ajax_dl_all.php
+    api_url = f"https://api.nonton.bid/c_api/ajax_dl_all.php?domain=https://d.load.my.id&media_type=tv&id={movie_id}"
+    headers = {
+        "Referer": "https://drakor.kita.mobi/",
+        "Origin": "https://drakor.kita.mobi",
+        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4_1 like Mac OS X) AppleWebKit/605.1.15"
+    }
+    r = requests.get(api_url, headers=headers, impersonate="chrome124", timeout=15)
+    cards = re.findall(r'<div class="card">(.*?)</div>\s*</div>', r.text, re.DOTALL)
+    
+    episodes = []
+    for c in cards:
+        header_m = re.search(r'<div class="card-header">(.*?)</div>', c)
+        ep_name = header_m.group(1).strip() if header_m else "Episode"
+        
+        q_links = re.findall(r'href="/download/([^"]+)">([^<]+)</a>', c)
+        qualities = []
+        for dl_id, q_text in q_links:
+            qualities.append({
+                "dl_id": dl_id,
+                "label": q_text.strip()
+            })
+        episodes.append({
+            "name": ep_name,
+            "qualities": qualities
+        })
+        
+    return {
+        "title": title,
+        "poster": poster,
+        "synopsis": synopsis,
+        "movie_id": movie_id,
+        "slug": slug,
+        "episodes": episodes
+    }
+
+def get_drakorkita_download_link(dl_id: str):
+    """Dapatkan direct URL unduhan (file_host 1fichier/p2p/sb) dari dl_id"""
+    api_url = f"https://api.nonton.bid/c_api/dlfilemob.php?id={dl_id}&is_mob=1"
+    headers = {
+        "Referer": "https://drakor.kita.mobi/",
+        "Origin": "https://drakor.kita.mobi",
+        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4_1 like Mac OS X) AppleWebKit/605.1.15"
+    }
+    try:
+        r = requests.get(api_url, headers=headers, impersonate="chrome124", timeout=15)
+        data = r.json()
+        direct_link = data.get("link") or data.get("linksb") or data.get("linkp2p") or ""
+        return direct_link
+    except Exception as e:
+        print(f"[dlfilemob error] {e}")
+        return ""

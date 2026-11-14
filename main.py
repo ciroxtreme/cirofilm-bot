@@ -1,4 +1,5 @@
 import os
+import time
 import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 import lk21_engine
@@ -8,6 +9,17 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN", "9155074189:AAF-D3xWr7r0Qsn3NGD8J-mFwvSj
 bot = telebot.TeleBot(BOT_TOKEN, parse_mode="HTML")
 
 print("🤖 Cirofilm_bot is initializing (Movies & TV Series Edition)...")
+
+# Cache memori untuk callback DrakorKita
+DK_CACHE = {}
+
+def dk_cache_put(data):
+    key = f"c_{int(time.time() * 1000) % 10000000}"
+    if len(DK_CACHE) > 500:
+        for k in list(DK_CACHE.keys())[:100]:
+            DK_CACHE.pop(k, None)
+    DK_CACHE[key] = data
+    return key
 
 @bot.message_handler(commands=["start", "help"])
 def send_welcome(message):
@@ -69,9 +81,10 @@ def handle_search(message):
         # Opsi Sumber 2: Drakor.Kita.Mobi
         if results_dk:
             markup.add(InlineKeyboardButton("➖➖ 🇰🇷 DRAKOR.KITA.MOBI ➖➖", callback_data="noop"))
-            for dk in results_dk[:4]:
+            for dk in results_dk[:5]:
                 btn_text = f"🇰🇷 {dk['title']}"
-                markup.add(InlineKeyboardButton(btn_text, url=dk["detail_url"]))
+                cid = dk_cache_put(dk["slug"])
+                markup.add(InlineKeyboardButton(btn_text, callback_data=f"dk:{cid}"))
 
         total_found = len(results_lk21) + len(results_dk)
         bot.edit_message_text(
@@ -237,6 +250,114 @@ def handle_download_callback(call):
                 reply_markup=markup
             )
 
+    except Exception as e:
+        bot.edit_message_text(f"⚠️ Terjadi error: {e}", chat_id=call.message.chat.id, message_id=status_msg.message_id)
+
+# ==================== DRAKORKITA HANDLERS ====================
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("dk:"))
+def handle_drakorkita_episodes(call):
+    cid = call.data.replace("dk:", "")
+    slug = DK_CACHE.get(cid, cid)
+    bot.answer_callback_query(call.id, "Memuat episode DrakorKita...")
+
+    status_msg = bot.send_message(
+        call.message.chat.id,
+        "⏳ <i>Menghubungkan ke drakor.kita.mobi & mengekstrak semua episode...</i>"
+    )
+
+    try:
+        detail = lk21_engine.get_drakorkita_episodes(slug)
+        if not detail or not detail.get("episodes"):
+            err_detail = getattr(lk21_engine, "LAST_ERROR", "Tidak ada error tercatat")
+            bot.edit_message_text(
+                f"❌ Gagal memuat episode drama.\n\n<code>Info Solver: {err_detail}</code>",
+                chat_id=call.message.chat.id,
+                message_id=status_msg.message_id
+            )
+            return
+
+        markup = InlineKeyboardMarkup()
+        episodes = detail.get("episodes", [])
+        
+        # Susun tombol 2 kolom per baris
+        row = []
+        for ep in episodes:
+            ep_cid = dk_cache_put({
+                "ep_name": ep["name"],
+                "qualities": ep["qualities"],
+                "title": detail["title"]
+            })
+            clean_name = ep["name"].replace("Download ", "")
+            btn = InlineKeyboardButton(f"📺 {clean_name}", callback_data=f"dep:{ep_cid}")
+            row.append(btn)
+            if len(row) == 2:
+                markup.row(*row)
+                row = []
+        if row:
+            markup.row(*row)
+
+        caption = (
+            f"🇰🇷 <b>{detail['title']}</b>\n\n"
+            f"📝 <b>Sinopsis:</b>\n<i>{detail['synopsis'][:350]}...</i>\n\n"
+            f"📑 <b>Total Episode:</b> {len(episodes)}\n"
+            f"👉 <i>Silakan pilih episode yang ingin kamu unduh:</i>"
+        )
+
+        bot.delete_message(call.message.chat.id, status_msg.message_id)
+
+        if detail.get("poster"):
+            bot.send_photo(
+                call.message.chat.id,
+                photo=detail["poster"],
+                caption=caption,
+                reply_markup=markup
+            )
+        else:
+            bot.send_message(
+                call.message.chat.id,
+                text=caption,
+                reply_markup=markup
+            )
+
+    except Exception as e:
+        bot.edit_message_text(f"⚠️ Terjadi error: {e}", chat_id=call.message.chat.id, message_id=status_msg.message_id)
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("dep:"))
+def handle_drakorkita_download(call):
+    ep_cid = call.data.replace("dep:", "")
+    ep_data = DK_CACHE.get(ep_cid)
+    if not ep_data:
+        bot.answer_callback_query(call.id, "⚠️ Sesi kedaluwarsa. Silakan cari ulang ya.")
+        return
+
+    bot.answer_callback_query(call.id, "Mengekstrak direct download link...")
+    status_msg = bot.send_message(
+        call.message.chat.id,
+        f"⏳ <i>Mengekstrak file download untuk <b>{ep_data['ep_name']}</b>...</i>"
+    )
+
+    try:
+        markup = InlineKeyboardMarkup()
+        for q in ep_data["qualities"]:
+            direct_url = lk21_engine.get_drakorkita_download_link(q["dl_id"])
+            if direct_url:
+                markup.add(InlineKeyboardButton(f"📥 {q['label']}", url=direct_url))
+            else:
+                markup.add(InlineKeyboardButton(f"🌐 Web: {q['label']}", url=f"https://drakor.kita.mobi/download/{q['dl_id']}"))
+
+        text = (
+            f"🎬 <b>{ep_data['title']}</b>\n"
+            f"📌 <b>{ep_data['ep_name']}</b>\n\n"
+            f"⚡ <b>Pilih resolusi link download langsung (Direct Video File):</b>"
+        )
+
+        bot.edit_message_text(
+            text,
+            chat_id=call.message.chat.id,
+            message_id=status_msg.message_id,
+            reply_markup=markup
+        )
     except Exception as e:
         bot.edit_message_text(f"⚠️ Terjadi error: {e}", chat_id=call.message.chat.id, message_id=status_msg.message_id)
 
