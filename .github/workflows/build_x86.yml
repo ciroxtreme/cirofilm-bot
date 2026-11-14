@@ -1,4 +1,4 @@
-name: Build x86_64 Challenge Binary
+name: Build x86_64 Challenge Binary (glibc 2.35 / Ubuntu 22.04)
 
 on:
   workflow_dispatch:
@@ -10,7 +10,7 @@ on:
 
 jobs:
   build-x86_64:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     permissions:
       contents: write
     steps:
@@ -26,24 +26,24 @@ jobs:
         run: |
           git clone https://github.com/chris124567/cfsolve.git cfsolve-build
           cd cfsolve-build
-          # Patch public visibility like our local repo
           sed -i 's/pub(super) http: Client/pub http: Client/g' src/http/client.rs
 
       - name: Setup Rust Toolchain
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Build challenge binary on x86_64
+      - name: Build challenge binary on Ubuntu 22.04 (GLIBC 2.35)
         working-directory: cfsolve-build
         run: |
           cargo build --release --bin challenge
           strip target/release/challenge
           ls -lh target/release/challenge
+          objdump -p target/release/challenge | grep -A 10 "required from libc.so.6" || true
 
-      - name: Commit & push x86_64 binary
+      - name: Commit & push compatible x86_64 binary
         run: |
           cp cfsolve-build/target/release/challenge bin/challenge
           git config user.name "ciroxtreme"
           git config user.email "ciroxtreme@gmail.com"
           git add bin/challenge
-          git commit -m "fix(bin): update challenge binary compiled for x86_64 (Bot-Hosting architecture)" || echo "No changes"
+          git commit -m "fix(bin): build challenge binary on ubuntu-22.04 with glibc 2.35 compatibility" || echo "No changes"
           git push origin main
