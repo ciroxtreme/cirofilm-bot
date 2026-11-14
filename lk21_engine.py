@@ -243,28 +243,25 @@ def get_download_links_from_gateway(dl_gateway: str):
     return downloads
 
 def get_episode_download(ep_slug: str):
-    """Ambil link download untuk satu episode spesifik dari tv.nontondrama.vip"""
-    ep_url = f"{BASE_SERIES}/{ep_slug}"
-    html = fetch_with_cfsolve(ep_url)
-    if not html:
-        return {"downloads": [], "title": ep_slug}
-
-    soup = BeautifulSoup(html, "html.parser")
-    title_tag = soup.find("h1") or soup.find("title")
-    title = title_tag.text.strip() if title_tag else ep_slug
-
-    dl_gateway = None
-    for a in soup.find_all("a", href=True):
-        if "dadadidi.de" in a["href"]:
-            dl_gateway = a["href"]
-            break
-
-    downloads = []
-    if dl_gateway:
-        downloads = get_download_links_from_gateway(dl_gateway)
+    """Ambil link download untuk satu episode spesifik langsung via gateway dadadidi.de"""
+    # Shortcut langsung: gateway dadadidi.de menggunakan format https://dadadidi.de/{ep_slug}
+    direct_gw = f"https://dadadidi.de/{ep_slug}"
+    print(f"[direct gateway] Mengambil link langsung dari {direct_gw}...")
+    downloads = get_download_links_from_gateway(direct_gw)
+    
+    # Jika shortcut gagal, baru fallback buka halaman webnya
+    if not downloads:
+        ep_url = f"{BASE_SERIES}/{ep_slug}"
+        html = fetch_with_cfsolve(ep_url)
+        if html:
+            soup = BeautifulSoup(html, "html.parser")
+            for a in soup.find_all("a", href=True):
+                if "dadadidi.de" in a["href"]:
+                    downloads = get_download_links_from_gateway(a["href"])
+                    break
 
     return {
-        "title": title,
+        "title": ep_slug.replace("-", " ").title(),
         "downloads": downloads
     }
 

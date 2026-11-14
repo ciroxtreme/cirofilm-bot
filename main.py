@@ -54,7 +54,7 @@ def handle_search(message):
             icon = "📺" if is_series else "🎬"
             ep_tag = f" [{it['episodes_count']} Eps]" if is_series and it.get("episodes_count") else ""
             btn_text = f"{icon} {it['title']} ({it['year']}){ep_tag} ⭐ {it['rating']}"
-            cb_data = f"ser:{it['slug'][:40]}" if is_series else f"dl:{it['slug'][:40]}"
+            cb_data = f"ser:{it['slug']}" if is_series else f"dl:{it['slug']}"
             markup.add(InlineKeyboardButton(btn_text, callback_data=cb_data))
 
         bot.edit_message_text(
@@ -94,7 +94,7 @@ def handle_series_callback(call):
         # Susun tombol 3-4 kolom per baris agar rapi
         row = []
         for ep in episodes:
-            btn = InlineKeyboardButton(ep["label"], callback_data=f"ep:{ep['slug'][:40]}")
+            btn = InlineKeyboardButton(ep["label"], callback_data=f"ep:{ep['slug']}")
             row.append(btn)
             if len(row) == 3:
                 markup.row(*row)
