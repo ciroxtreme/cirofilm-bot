@@ -1,18 +1,89 @@
 import os
 import itertools
+import time
+import threading
+import sys
 import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 import lk21_engine
 import diag
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "9155074189:AAF-D3xWr7r0Qsn3NGD8J-mFwvSjL_XNGug")
+WORKER_URL = os.environ.get("WORKER_URL", "https://cirofilm-wake.captenciro.workers.dev")
 bot = telebot.TeleBot(BOT_TOKEN, parse_mode="HTML")
 
-print("🤖 Cirofilm_bot is initializing (Movies & TV Series Edition)...")
+print("🤖 Cirofilm_bot is initializing (On-Demand GitHub Actions Edition)...")
 
 # Cache memori untuk callback DrakorKita dengan atomic counter (anti-collision)
 _dk_counter = itertools.count(1)
 DK_CACHE = {}
+
+# Idle timer management (1 jam = 3600 detik)
+IDLE_TIMEOUT_SECONDS = 3600
+last_activity_time = time.time()
+is_shutting_down = False
+last_user_chat_id = None
+
+def update_activity(chat_id=None):
+    global last_activity_time, last_user_chat_id
+    last_activity_time = time.time()
+    if chat_id:
+        last_user_chat_id = chat_id
+
+def restore_webhook():
+    """Mengembalikan Telegram Webhook ke Cloudflare Worker saat bot mau tidur"""
+    if not WORKER_URL:
+        return
+    try:
+        print(f"🔄 Restoring webhook to Cloudflare Worker: {WORKER_URL}")
+        bot.set_webhook(url=WORKER_URL, drop_pending_updates=True)
+        print("✅ Webhook restored successfully!")
+    except Exception as e:
+        print(f"⚠️ Failed to restore webhook: {e}")
+
+def shutdown_bot(reason="timeout"):
+    global is_shutting_down
+    if is_shutting_down:
+        return
+    is_shutting_down = True
+    print(f"🛑 Shutting down Cirofilm Bot (Reason: {reason})...")
+
+    if last_user_chat_id:
+        try:
+            if reason == "manual":
+                bot.send_message(
+                    last_user_chat_id,
+                    "💤 <b>CiroFilm Bot telah dinonaktifkan (Manual Stop).</b>\n"
+                    "Server GitHub Actions dimatikan untuk menghemat kuota.\n\n"
+                    "<i>Ketik judul film apa saja kapan pun untuk membangunkan kembali!</i>"
+                )
+            else:
+                bot.send_message(
+                    last_user_chat_id,
+                    "💤 <b>CiroFilm Bot otomatis tidur</b> karena tidak ada aktivitas selama 1 jam.\n"
+                    "Server dimatikan dengan aman. Ketik judul film apa pun jika ingin nonton lagi!"
+                )
+        except Exception as e:
+            print(f"⚠️ Failed to send shutdown message: {e}")
+
+    try:
+        bot.stop_polling()
+    except Exception:
+        pass
+
+    restore_webhook()
+    print("👋 Bye! Process exiting cleanly.")
+    os._exit(0)
+
+def idle_checker_thread():
+    """Background monitor untuk auto-shutdown jika nganggur 1 jam"""
+    while not is_shutting_down:
+        time.sleep(15)
+        idle_duration = time.time() - last_activity_time
+        if idle_duration >= IDLE_TIMEOUT_SECONDS:
+            print(f"⏰ Idle timeout reached ({int(idle_duration)}s >= {IDLE_TIMEOUT_SECONDS}s).")
+            shutdown_bot(reason="timeout")
+            break
 
 def dk_cache_put(data):
     key = f"c_{next(_dk_counter)}"
@@ -22,8 +93,15 @@ def dk_cache_put(data):
     DK_CACHE[key] = data
     return key
 
+@bot.message_handler(commands=["stop", "off"])
+def handle_stop(message):
+    update_activity(message.chat.id)
+    bot.reply_to(message, "🛑 <i>Menerima perintah /stop. Menyiapkan proses tidur...</i>")
+    threading.Thread(target=shutdown_bot, kwargs={"reason": "manual"}).start()
+
 @bot.message_handler(commands=["start", "help"])
 def send_welcome(message):
+    update_activity(message.chat.id)
     text = (
         "🎬 <b>Selamat Datang di CiroFilm Bot!</b>\n\n"
         "Bot download <b>Film & Drama Korea / TV Series</b> tanpa iklan, ditenagai engine native Cloudflare Solver.\n\n"
@@ -43,6 +121,7 @@ def send_diag(message):
 
 @bot.message_handler(func=lambda message: True)
 def handle_search(message):
+    update_activity(message.chat.id)
     query = message.text.strip()
     if len(query) < 2:
         bot.reply_to(message, "⚠️ Masukkan judul minimal 2 huruf ya!")
@@ -99,11 +178,13 @@ def handle_search(message):
 
 @bot.callback_query_handler(func=lambda call: call.data == "noop")
 def handle_noop(call):
+    update_activity(call.message.chat.id)
     bot.answer_callback_query(call.id)
 
 # Handler khusus Series / Drakor (Menampilkan daftar episode)
 @bot.callback_query_handler(func=lambda call: call.data.startswith("ser:"))
 def handle_series_callback(call):
+    update_activity(call.message.chat.id)
     slug = call.data.replace("ser:", "")
     bot.answer_callback_query(call.id, "Memuat daftar episode series...")
 
@@ -363,5 +444,24 @@ def handle_drakorkita_download(call):
         bot.edit_message_text(f"⚠️ Terjadi error: {e}", chat_id=call.message.chat.id, message_id=status_msg.message_id)
 
 if __name__ == "__main__":
-    print("🚀 Bot started polling (Movies & Series Support)...")
-    bot.infinity_polling(skip_pending=True)
+    print("🚀 Initializing Cirofilm Bot On-Demand Runner...")
+    
+    # Lepas webhook dulu agar polling bisa jalan
+    try:
+        print("🔓 Removing Telegram webhook for polling mode...")
+        bot.remove_webhook()
+    except Exception as e:
+        print(f"⚠️ remove_webhook error: {e}")
+
+    # Nyalakan thread pemantau idle 1 jam
+    idle_monitor = threading.Thread(target=idle_checker_thread, daemon=True)
+    idle_monitor.start()
+    print(f"⏱️ Idle shutdown monitor active (Timeout: {IDLE_TIMEOUT_SECONDS}s / 1 hour).")
+
+    print("🚀 Bot started polling (Interactive Movies & Series Mode)...")
+    try:
+        bot.infinity_polling(skip_pending=True)
+    except Exception as e:
+        print(f"⚠️ Bot polling exception: {e}")
+    finally:
+        restore_webhook()

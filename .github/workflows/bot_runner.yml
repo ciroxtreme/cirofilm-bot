@@ -1,0 +1,40 @@
+name: CiroFilm Bot On-Demand Runner
+
+on:
+  workflow_dispatch:
+  repository_dispatch:
+    types: [wake_bot]
+
+concurrency:
+  group: cirofilm_runner
+  cancel-in-progress: false
+
+jobs:
+  run-bot:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 360
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Ensure Executable Permissions
+        run: |
+          chmod +x ./bin/challenge || true
+
+      - name: Run CiroFilm Bot Engine
+        env:
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN || '9155074189:AAF-D3xWr7r0Qsn3NGD8J-mFwvSjL_XNGug' }}
+          WORKER_URL: ${{ secrets.WORKER_URL || 'https://cirofilm-wake.captenciro.workers.dev' }}
+        run: |
+          python -u main.py
