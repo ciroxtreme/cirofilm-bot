@@ -48,14 +48,25 @@ def fetch_with_cfsolve(target_url: str) -> str:
             cmd.extend(["--proxy", PROXY_URL])
 
         res = subprocess.run(cmd, capture_output=True, text=True, timeout=65)
-        if res.returncode != 0:
-            LAST_ERROR = f"Exit code {res.returncode}: {res.stderr[:200]}"
-            print(f"[cfsolve returncode != 0] {res.stderr}")
-            
+        
+        # 1. Cek cleared.html jika halaman ada tantangan Cloudflare Turnstile
         cleared_file = os.path.join(out_dir, "cleared.html")
         if os.path.exists(cleared_file):
             with open(cleared_file, "r", encoding="utf-8", errors="ignore") as f:
                 return f.read()
+
+        # 2. Cek page.html: Jika halaman ternyata LANGSUNG tembus HTTP 200 OK (tanpa ada tantangan Turnstile)
+        page_file = os.path.join(out_dir, "page.html")
+        if os.path.exists(page_file):
+            with open(page_file, "r", encoding="utf-8", errors="ignore") as f:
+                content = f.read()
+            if len(content) > 1000 and "Just a moment" not in content and "challenge-platform" not in content:
+                print(f"[cfsolve] Direct HTTP 200 OK without Turnstile ({len(content)} bytes)")
+                return content
+
+        if res.returncode != 0:
+            LAST_ERROR = f"Exit code {res.returncode}: {res.stderr[:200]}"
+            print(f"[cfsolve returncode != 0] {res.stderr}")
         else:
             if not LAST_ERROR:
                 LAST_ERROR = f"cleared.html not found. stderr: {res.stderr[:200]}"
