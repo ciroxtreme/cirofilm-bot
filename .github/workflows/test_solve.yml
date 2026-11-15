@@ -1,0 +1,20 @@
+name: Test cfsolve on GitHub Runner
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test cfsolve
+        run: |
+          chmod +x ./bin/challenge
+          mkdir -p /tmp/out1
+          ./bin/challenge --page "https://gudangvape.com/search.php?s=Lets%20fight%20ghost&page=1" /tmp/out1 --solve --fingerprint ./profiles/safari-26-ios.json || true
+          ls -la /tmp/out1
+          if [ -f /tmp/out1/cleared.html ]; then
+            echo "Cleared HTML:"
+            cat /tmp/out1/cleared.html | head -c 200
+          fi
