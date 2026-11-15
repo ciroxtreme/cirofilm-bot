@@ -149,9 +149,9 @@ def process_search_query(chat_id: int, query: str):
                 markup.add(InlineKeyboardButton(btn_text, callback_data=cb_data))
 
         if results_dk:
-            markup.add(InlineKeyboardButton("➖➖ 🇰🇷 DRAKOR.KITA.MOBI ➖➖", callback_data="noop"))
+            markup.add(InlineKeyboardButton("➖➖ 🌐 SERVER 2 (DRAKOR / MOVIE) ➖➖", callback_data="noop"))
             for dk in results_dk[:5]:
-                btn_text = f"🇰🇷 {dk['title']}"
+                btn_text = f"🎬 {dk['title']}"
                 cid = dk_cache_put(dk["slug"])
                 markup.add(InlineKeyboardButton(btn_text, callback_data=f"dk:{cid}"))
 
@@ -362,26 +362,40 @@ def handle_drakorkita_episodes(call):
         
         # Susun tombol 2 kolom per baris
         row = []
+        is_single_movie = (len(episodes) == 1 and "unnamed" in episodes[0]["name"].lower())
+        
         for ep in episodes:
             ep_cid = dk_cache_put({
                 "ep_name": ep["name"],
                 "qualities": ep["qualities"],
                 "title": detail["title"]
             })
-            clean_name = ep["name"].replace("Download ", "")
-            btn = InlineKeyboardButton(f"📺 {clean_name}", callback_data=f"dep:{ep_cid}")
+            raw_name = ep["name"].replace("Download ", "").strip()
+            if "unnamed" in raw_name.lower():
+                clean_name = "Download Full Movie"
+                btn_icon = "📥"
+            else:
+                clean_name = raw_name
+                btn_icon = "📺"
+
+            btn = InlineKeyboardButton(f"{btn_icon} {clean_name}", callback_data=f"dep:{ep_cid}")
             row.append(btn)
-            if len(row) == 2:
+            if len(row) == 2 or is_single_movie:
                 markup.row(*row)
                 row = []
         if row:
             markup.row(*row)
 
+        category_icon = "🎬" if is_single_movie else "📺"
+        category_label = "Movie / Film" if is_single_movie else "Series / Drama"
+        total_info = f"📑 <b>Tipe:</b> {category_label}\n" if is_single_movie else f"📑 <b>Total Episode:</b> {len(episodes)}\n"
+        guide_text = "👉 <i>Klik tombol di bawah untuk memilih kualitas download:</i>" if is_single_movie else "👉 <i>Silakan pilih episode yang ingin kamu unduh:</i>"
+
         caption = (
-            f"🇰🇷 <b>{detail['title']}</b>\n\n"
+            f"{category_icon} <b>{detail['title']}</b>\n\n"
             f"📝 <b>Sinopsis:</b>\n<i>{detail['synopsis'][:350]}...</i>\n\n"
-            f"📑 <b>Total Episode:</b> {len(episodes)}\n"
-            f"👉 <i>Silakan pilih episode yang ingin kamu unduh:</i>"
+            f"{total_info}"
+            f"{guide_text}"
         )
 
         bot.delete_message(call.message.chat.id, status_msg.message_id)
