@@ -110,22 +110,22 @@ def solve_turnstile_token(page_url: str, sitekey: str = DEFAULT_SITEKEY) -> str:
     finally:
         shutil.rmtree(out_dir, ignore_errors=True)
 
-def search_movies(query: str):
-    """Cari film & series via backend LK21 (gudangvape.com API)"""
-    # Bersihkan tanda kutip satu agar query pencarian mulus di database LK21
+def search_movies(query: str, page: int = 1):
+    """Cari film & series via backend LK21 (gudangvape.com API) dengan pagination"""
     clean_q = query.replace("'", "").replace("’", "").strip()
-    search_url = f"https://gudangvape.com/search.php?s={urllib.parse.quote(clean_q)}&page=1"
+    search_url = f"https://gudangvape.com/search.php?s={urllib.parse.quote(clean_q)}&page={page}"
     raw_json = fetch_with_cfsolve(search_url)
     if not raw_json and clean_q != query:
-        raw_json = fetch_with_cfsolve(f"https://gudangvape.com/search.php?s={urllib.parse.quote(query)}&page=1")
+        raw_json = fetch_with_cfsolve(f"https://gudangvape.com/search.php?s={urllib.parse.quote(query)}&page={page}")
     if not raw_json:
-        return []
+        return {"total_pages": 1, "data": []}
     
     try:
         data = json.loads(raw_json)
         items = data.get("data", [])
+        total_pages = data.get("totalPages", 1)
         results = []
-        for it in items[:8]:
+        for it in items:
             mtype = it.get("type", "movie")
             results.append({
                 "title": it.get("title", ""),
@@ -136,10 +136,10 @@ def search_movies(query: str):
                 "episodes_count": it.get("episode", 0),
                 "poster": f"https://poster.assetsy.de/wp-content/uploads/{it.get('poster', '')}" if it.get("poster") else ""
             })
-        return results
+        return {"total_pages": total_pages, "data": results}
     except Exception as e:
         print(f"[parse search error] {e}")
-        return []
+        return {"total_pages": 1, "data": []}
 
 def get_series_detail(slug: str):
     """Ambil detail series/drakor & daftar episode dari tv.nontondrama.vip"""
@@ -337,15 +337,15 @@ def get_movie_detail(slug: str):
     }
 
 
-def search_drakorkita(query: str):
-    """Cari drama di drakor.kita.mobi"""
+def search_drakorkita(query: str, page: int = 1):
+    """Cari drama di drakor.kita.mobi dengan pagination"""
     clean_q = query.replace("'", "").replace("’", "").strip()
-    url = f"https://drakor.kita.mobi/all?q={urllib.parse.quote(clean_q)}"
+    url = f"https://drakor.kita.mobi/all?q={urllib.parse.quote(clean_q)}&page={page}"
     html = fetch_with_cfsolve(url)
     if not html and clean_q != query:
-        html = fetch_with_cfsolve(f"https://drakor.kita.mobi/all?q={urllib.parse.quote(query)}")
+        html = fetch_with_cfsolve(f"https://drakor.kita.mobi/all?q={urllib.parse.quote(query)}&page={page}")
     if not html:
-        return []
+        return {"total_pages": 1, "data": []}
         
     soup = BeautifulSoup(html, "html.parser")
     results = []
@@ -377,8 +377,6 @@ def search_drakorkita(query: str):
             "detail_url": f"https://drakor.kita.mobi/detail/{slug}/",
             "poster": poster
         })
-        if len(results) >= 6:
-            break
             
     # Fallback jika class card tidak ada
     if not results:
@@ -393,6 +391,26 @@ def search_drakorkita(query: str):
                 lines = [l.strip() for l in title_text.splitlines() if l.strip()]
                 main_title = lines[1] if len(lines) > 1 else (lines[0] if lines else href)
                 img = a.find("img")
+                poster = img.get("src") or img.get("data-src") if img else ""
+                results.append({
+                    "source": "drakorkita",
+                    "title": main_title,
+                    "slug": slug,
+                    "detail_url": f"https://drakor.kita.mobi{href}",
+                    "poster": poster
+                })
+
+    # Cek total pages dari pagination links
+    total_pages = 1
+    for a in soup.find_all("a", href=True):
+        if "page=" in a["href"]:
+            m = re.search(r"page=([0-9]+)", a["href"])
+            if m:
+                p_num = int(m.group(1))
+                if p_num > total_pages:
+                    total_pages = p_num
+
+    return {"total_pages": min(total_pages, 20), "data": results}
                 poster = img.get("src") or img.get("data-src") if img else ""
                 results.append({
                     "source": "drakorkita",

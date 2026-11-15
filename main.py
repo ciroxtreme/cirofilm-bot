@@ -119,28 +119,128 @@ def send_diag(message):
     report = diag.run_diag()
     bot.reply_to(message, f"<pre>{report}</pre>")
 
-def process_search_query(chat_id: int, query: str):
-    """Fungsi pencarian reusable untuk Telegram polling maupun initial wake query"""
+def ask_search_target(chat_id: int, query: str):
+    """Langkah 1: Tanyakan ke user mau cari di LK21 (Barat/Global) atau DrakorKita (Asian/Korea)"""
     update_activity(chat_id)
-    wait_msg = bot.send_message(chat_id, f"🔍 <b>Mencari:</b> <i>{query}</i>\n<i>Sedang menembus database LK21 & DrakorKita...</i>")
+    cid = dk_cache_put({"q": query, "page": 1})
+    
+    markup = InlineKeyboardMarkup()
+    markup.add(
+        InlineKeyboardButton("🌐 LK21 (Film Barat / Hollywood)", callback_data=f"src:lk:{cid}"),
+        InlineKeyboardButton("🇰🇷 DrakorKita (Drama Korea / Asia)", callback_data=f"src:dk:{cid}")
+    )
+    markup.add(InlineKeyboardButton("🍿 Cari di Keduanya (Semua Server)", callback_data=f"src:all:{cid}"))
+
+    text = (
+        f"🎬 <b>Pencarian:</b> <i>{query}</i>\n\n"
+        f"Pilih sumber server yang ingin kamu jelajahi:"
+    )
+    bot.send_message(chat_id, text, reply_markup=markup)
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("src:"))
+def handle_source_selection(call):
+    update_activity(call.message.chat.id)
+    _, target_src, cid = call.data.split(":")
+    cached = DK_CACHE.get(cid)
+    if not cached:
+        bot.answer_callback_query(call.id, "Sesi pencarian kedaluwarsa, silakan ketik ulang.")
+        return
+
+    cached["src"] = target_src
+    query = cached["q"]
+
+    # Jika memilih LK21 atau All, tanyakan mau Movie atau Series
+    if target_src in ["lk", "all"]:
+        markup = InlineKeyboardMarkup()
+        markup.add(
+            InlineKeyboardButton("🎬 Movie (Film Bioskop)", callback_data=f"fmt:movie:{cid}"),
+            InlineKeyboardButton("📺 Series / Serial TV", callback_data=f"fmt:series:{cid}")
+        )
+        markup.add(InlineKeyboardButton("🍿 Tampilkan Semua Format", callback_data=f"fmt:all:{cid}"))
+        
+        bot.edit_message_text(
+            f"🎬 <b>Pencarian:</b> <i>{query}</i>\n"
+            f"📍 <b>Server:</b> {'LK21' if target_src == 'lk' else 'Semua Server'}\n\n"
+            f"Mau format apa Tuan Ciro?",
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            reply_markup=markup
+        )
+    else:
+        # DrakorKita langsung jalankan pencarian
+        cached["fmt"] = "all"
+        execute_paged_search(call.message.chat.id, call.message.message_id, cid)
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("fmt:"))
+def handle_format_selection(call):
+    update_activity(call.message.chat.id)
+    _, fmt, cid = call.data.split(":")
+    cached = DK_CACHE.get(cid)
+    if not cached:
+        bot.answer_callback_query(call.id, "Sesi pencarian kedaluwarsa.")
+        return
+
+    cached["fmt"] = fmt
+    execute_paged_search(call.message.chat.id, call.message.message_id, cid)
+
+def execute_paged_search(chat_id: int, message_id: int, cid: str):
+    cached = DK_CACHE.get(cid)
+    if not cached:
+        return
+
+    query = cached["q"]
+    page = cached.get("page", 1)
+    target_src = cached.get("src", "all")
+    target_fmt = cached.get("fmt", "all")
+
+    bot.edit_message_text(
+        f"🔍 <b>Mencari:</b> <i>{query}</i> (Halaman {page})\n<i>Sedang menghubungkan ke server...</i>",
+        chat_id=chat_id,
+        message_id=message_id
+    )
 
     try:
-        results_lk21 = lk21_engine.search_movies(query)
-        results_dk = lk21_engine.search_drakorkita(query)
+        results_lk21 = []
+        total_pages_lk = 1
+        results_dk = []
+        total_pages_dk = 1
+
+        # 1. Cari LK21 jika diminta
+        if target_src in ["lk", "all"]:
+            lk_res = lk21_engine.search_movies(query, page=page)
+            raw_lk = lk_res.get("data", [])
+            total_pages_lk = lk_res.get("total_pages", 1)
+            
+            # Filter format jika dipilih spesifik
+            if target_fmt == "movie":
+                results_lk21 = [x for x in raw_lk if x.get("type") == "movie"]
+            elif target_fmt == "series":
+                results_lk21 = [x for x in raw_lk if x.get("type") == "series"]
+            else:
+                results_lk21 = raw_lk
+
+        # 2. Cari DrakorKita jika diminta
+        if target_src in ["dk", "all"]:
+            dk_res = lk21_engine.search_drakorkita(query, page=page)
+            results_dk = dk_res.get("data", [])
+            total_pages_dk = dk_res.get("total_pages", 1)
+
+        total_pages = max(total_pages_lk, total_pages_dk)
 
         if not results_lk21 and not results_dk:
-            err_detail = getattr(lk21_engine, "LAST_ERROR", "Tidak ada error tercatat")
             bot.edit_message_text(
-                f"❌ Judul <b>{query}</b> tidak ditemukan di LK21 maupun DrakorKita.\n\n<code>Info Solver: {err_detail}</code>",
+                f"❌ Tidak ditemukan hasil untuk <b>{query}</b> pada halaman {page}.\n\n"
+                f"<i>Tips: Periksa ejaan judul atau coba gunakan kata kunci yang lebih singkat.</i>",
                 chat_id=chat_id,
-                message_id=wait_msg.message_id
+                message_id=message_id
             )
             return
 
         markup = InlineKeyboardMarkup()
+
         if results_lk21:
             markup.add(InlineKeyboardButton("➖➖ 🌐 LK21 / NONTONDRAMA ➖➖", callback_data="noop"))
-            for it in results_lk21[:5]:
+            for it in results_lk21[:6]:
                 is_series = it["type"] == "series"
                 icon = "📺" if is_series else "🎬"
                 ep_tag = f" [{it['episodes_count']} Eps]" if is_series and it.get("episodes_count") else ""
@@ -149,21 +249,49 @@ def process_search_query(chat_id: int, query: str):
                 markup.add(InlineKeyboardButton(btn_text, callback_data=cb_data))
 
         if results_dk:
-            markup.add(InlineKeyboardButton("➖➖ 🌐 SERVER 2 (DRAKOR / MOVIE) ➖➖", callback_data="noop"))
-            for dk in results_dk[:5]:
+            markup.add(InlineKeyboardButton("➖➖ 🇰🇷 DRAKOR.KITA.MOBI ➖➖", callback_data="noop"))
+            for dk in results_dk[:6]:
                 btn_text = f"🎬 {dk['title']}"
-                cid = dk_cache_put(dk["slug"])
-                markup.add(InlineKeyboardButton(btn_text, callback_data=f"dk:{cid}"))
+                item_cid = dk_cache_put(dk["slug"])
+                markup.add(InlineKeyboardButton(btn_text, callback_data=f"dk:{item_cid}"))
 
-        total_found = len(results_lk21) + len(results_dk)
+        # Tombol Navigasi Pagination
+        nav_buttons = []
+        if page > 1:
+            nav_buttons.append(InlineKeyboardButton("⬅️ Prev", callback_data=f"pg:{page-1}:{cid}"))
+        nav_buttons.append(InlineKeyboardButton(f"📄 {page}/{total_pages}", callback_data="noop"))
+        if page < total_pages:
+            nav_buttons.append(InlineKeyboardButton("Next ➡️", callback_data=f"pg:{page+1}:{cid}"))
+
+        if len(nav_buttons) > 1:
+            markup.row(*nav_buttons)
+
         bot.edit_message_text(
-            f"🍿 <b>Ditemukan {total_found} hasil untuk:</b> <i>{query}</i>\nSilakan pilih server sumber di bawah ini:",
+            f"🍿 <b>Hasil Pencarian:</b> <i>{query}</i>\n"
+            f"📑 <b>Halaman:</b> {page} dari {total_pages}\n\n"
+            f"Silakan pilih judul di bawah ini:",
             chat_id=chat_id,
-            message_id=wait_msg.message_id,
+            message_id=message_id,
             reply_markup=markup
         )
     except Exception as e:
-        bot.edit_message_text(f"⚠️ Terjadi kesalahan: {e}", chat_id=chat_id, message_id=wait_msg.message_id)
+        bot.edit_message_text(f"⚠️ Terjadi kesalahan: {e}", chat_id=chat_id, message_id=message_id)
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("pg:"))
+def handle_pagination(call):
+    update_activity(call.message.chat.id)
+    _, p_str, cid = call.data.split(":")
+    cached = DK_CACHE.get(cid)
+    if not cached:
+        bot.answer_callback_query(call.id, "Sesi telah kedaluwarsa.")
+        return
+
+    cached["page"] = int(p_str)
+    execute_paged_search(call.message.chat.id, call.message.message_id, cid)
+
+def process_search_query(chat_id: int, query: str):
+    """Titik masuk awal pencarian"""
+    ask_search_target(chat_id, query)
 
 @bot.message_handler(func=lambda message: True)
 def handle_search(message):
@@ -172,7 +300,7 @@ def handle_search(message):
     if len(query) < 2:
         bot.reply_to(message, "⚠️ Masukkan judul minimal 2 huruf ya!")
         return
-    process_search_query(message.chat.id, query)
+    ask_search_target(message.chat.id, query)
 
 @bot.callback_query_handler(func=lambda call: call.data == "noop")
 def handle_noop(call):
