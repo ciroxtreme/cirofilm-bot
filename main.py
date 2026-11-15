@@ -629,8 +629,11 @@ if __name__ == "__main__":
             except Exception as e:
                 print(f"⚠️ Failed to delete ON message: {e}")
 
-            # 4. Kirim daftar film hasil pencarian!
-            process_search_query(cid, wake_query)
+            # 4. Jika query bukan /stop, jalankan pencarian
+            if wake_query not in ["/stop", "/off", "/start"]:
+                process_search_query(cid, wake_query)
+            elif wake_query in ["/stop", "/off"]:
+                shutdown_bot(reason="manual")
         except Exception as e:
             print(f"⚠️ Error handling initial wake: {e}")
 
