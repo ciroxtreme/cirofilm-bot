@@ -164,11 +164,40 @@ def get_series_detail(slug: str):
                 break
 
     poster = ""
-    for img in soup.find_all("img"):
-        src = img.get("src") or img.get("data-src")
-        if src and "poster.assetsy.de" in src:
-            poster = src
-            break
+    # 1. Cek OpenGraph meta og:image
+    og_img = soup.find("meta", property="og:image")
+    if og_img and og_img.get("content"):
+        poster = og_img["content"].strip()
+
+    # 2. Cek twitter:image
+    if not poster:
+        tw_img = soup.find("meta", attrs={"name": "twitter:image"})
+        if tw_img and tw_img.get("content"):
+            poster = tw_img["content"].strip()
+
+    # 3. Cek container spesifik poster (content-poster / poster / movie-info)
+    if not poster:
+        poster_container = soup.find(class_=re.compile(r"(content-poster|movie-info|\bposter\b)", re.I))
+        if poster_container:
+            img = poster_container.find("img")
+            if img:
+                poster = img.get("src") or img.get("data-src") or ""
+
+    # 4. Fallback jika container tidak ketemu: cari img yang mengandung slug film
+    if not poster:
+        for img in soup.find_all("img"):
+            src = img.get("src") or img.get("data-src") or ""
+            if src and slug in src:
+                poster = src
+                break
+
+    # 5. Fallback terakhir: img pertama yang cocok domain poster (tapi hindari jika bisa)
+    if not poster:
+        for img in soup.find_all("img"):
+            src = img.get("src") or img.get("data-src") or ""
+            if src and any(domain in src for domain in ["poster.assetsy.de", "onty.website", "wp-content/uploads"]):
+                poster = src
+                break
 
     # Ekstrak daftar episode lengkap dari JSON #season-data
     episodes = []
@@ -311,11 +340,40 @@ def get_movie_detail(slug: str):
                 break
                 
     poster = ""
-    for img in soup.find_all("img"):
-        src = img.get("src") or img.get("data-src")
-        if src and "poster.assetsy.de" in src:
-            poster = src
-            break
+    # 1. Cek OpenGraph meta og:image
+    og_img = soup.find("meta", property="og:image")
+    if og_img and og_img.get("content"):
+        poster = og_img["content"].strip()
+
+    # 2. Cek twitter:image
+    if not poster:
+        tw_img = soup.find("meta", attrs={"name": "twitter:image"})
+        if tw_img and tw_img.get("content"):
+            poster = tw_img["content"].strip()
+
+    # 3. Cek container spesifik poster (content-poster / poster / movie-info)
+    if not poster:
+        poster_container = soup.find(class_=re.compile(r"(content-poster|movie-info|\bposter\b)", re.I))
+        if poster_container:
+            img = poster_container.find("img")
+            if img:
+                poster = img.get("src") or img.get("data-src") or ""
+
+    # 4. Fallback jika container tidak ketemu: cari img yang mengandung slug film
+    if not poster:
+        for img in soup.find_all("img"):
+            src = img.get("src") or img.get("data-src") or ""
+            if src and slug in src:
+                poster = src
+                break
+
+    # 5. Fallback terakhir: img pertama yang cocok domain poster (tapi hindari jika bisa)
+    if not poster:
+        for img in soup.find_all("img"):
+            src = img.get("src") or img.get("data-src") or ""
+            if src and any(domain in src for domain in ["poster.assetsy.de", "onty.website", "wp-content/uploads"]):
+                poster = src
+                break
 
     # Cari link gateway download (dadadidi.de)
     dl_gateway = None
