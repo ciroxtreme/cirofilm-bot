@@ -93,8 +93,12 @@ def solve_turnstile_token(page_url: str, sitekey: str = DEFAULT_SITEKEY) -> str:
 
 def search_movies(query: str):
     """Cari film & series via backend LK21 (gudangvape.com API)"""
-    search_url = f"https://gudangvape.com/search.php?s={urllib.parse.quote(query)}&page=1"
+    # Bersihkan tanda kutip satu agar query pencarian mulus di database LK21
+    clean_q = query.replace("'", "").replace("’", "").strip()
+    search_url = f"https://gudangvape.com/search.php?s={urllib.parse.quote(clean_q)}&page=1"
     raw_json = fetch_with_cfsolve(search_url)
+    if not raw_json and clean_q != query:
+        raw_json = fetch_with_cfsolve(f"https://gudangvape.com/search.php?s={urllib.parse.quote(query)}&page=1")
     if not raw_json:
         return []
     
@@ -316,8 +320,11 @@ def get_movie_detail(slug: str):
 
 def search_drakorkita(query: str):
     """Cari drama di drakor.kita.mobi"""
-    url = f"https://drakor.kita.mobi/all?q={urllib.parse.quote(query)}"
+    clean_q = query.replace("'", "").replace("’", "").strip()
+    url = f"https://drakor.kita.mobi/all?q={urllib.parse.quote(clean_q)}"
     html = fetch_with_cfsolve(url)
+    if not html and clean_q != query:
+        html = fetch_with_cfsolve(f"https://drakor.kita.mobi/all?q={urllib.parse.quote(query)}")
     if not html:
         return []
         
