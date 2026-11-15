@@ -411,17 +411,6 @@ def search_drakorkita(query: str, page: int = 1):
                     total_pages = p_num
 
     return {"total_pages": min(total_pages, 20), "data": results}
-                poster = img.get("src") or img.get("data-src") if img else ""
-                results.append({
-                    "source": "drakorkita",
-                    "title": main_title,
-                    "slug": slug,
-                    "detail_url": f"https://drakor.kita.mobi{href}",
-                    "poster": poster
-                })
-                if len(results) >= 6:
-                    break
-    return results
 
 def get_drakorkita_episodes(slug: str):
     """Ambil daftar episode & link kualitas dari drakor.kita.mobi"""
