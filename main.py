@@ -245,7 +245,8 @@ def execute_paged_search(chat_id: int, message_id: int, cid: str):
                 icon = "📺" if is_series else "🎬"
                 ep_tag = f" [{it['episodes_count']} Eps]" if is_series and it.get("episodes_count") else ""
                 btn_text = f"{icon} {it['title']} ({it['year']}){ep_tag} ⭐ {it['rating']}"
-                cb_data = f"ser:{it['slug']}" if is_series else f"dl:{it['slug']}"
+                item_cid = dk_cache_put(it["slug"])
+                cb_data = f"ser:{item_cid}" if is_series else f"dl:{item_cid}"
                 markup.add(InlineKeyboardButton(btn_text, callback_data=cb_data))
 
         if results_dk:
@@ -311,7 +312,8 @@ def handle_noop(call):
 @bot.callback_query_handler(func=lambda call: call.data.startswith("ser:"))
 def handle_series_callback(call):
     update_activity(call.message.chat.id)
-    slug = call.data.replace("ser:", "")
+    raw_val = call.data.replace("ser:", "")
+    slug = DK_CACHE.get(raw_val, raw_val)
     bot.answer_callback_query(call.id, "Memuat daftar episode series...")
 
     status_msg = bot.send_message(
@@ -336,7 +338,8 @@ def handle_series_callback(call):
         # Susun tombol 3-4 kolom per baris agar rapi
         row = []
         for ep in episodes:
-            btn = InlineKeyboardButton(ep["label"], callback_data=f"ep:{ep['slug']}")
+            ep_cid = dk_cache_put(ep["slug"])
+            btn = InlineKeyboardButton(ep["label"], callback_data=f"ep:{ep_cid}")
             row.append(btn)
             if len(row) == 3:
                 markup.row(*row)
@@ -372,7 +375,8 @@ def handle_series_callback(call):
 # Handler per Episode Series
 @bot.callback_query_handler(func=lambda call: call.data.startswith("ep:"))
 def handle_episode_callback(call):
-    ep_slug = call.data.replace("ep:", "")
+    raw_val = call.data.replace("ep:", "")
+    ep_slug = DK_CACHE.get(raw_val, raw_val)
     bot.answer_callback_query(call.id, f"Mengekstrak download {ep_slug}...")
 
     status_msg = bot.send_message(
@@ -409,7 +413,8 @@ def handle_episode_callback(call):
 # Handler Movie Lepas
 @bot.callback_query_handler(func=lambda call: call.data.startswith("dl:"))
 def handle_download_callback(call):
-    slug = call.data.replace("dl:", "")
+    raw_val = call.data.replace("dl:", "")
+    slug = DK_CACHE.get(raw_val, raw_val)
     bot.answer_callback_query(call.id, "Sedang memproses link download...")
     
     status_msg = bot.send_message(
