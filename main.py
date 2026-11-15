@@ -119,35 +119,25 @@ def send_diag(message):
     report = diag.run_diag()
     bot.reply_to(message, f"<pre>{report}</pre>")
 
-@bot.message_handler(func=lambda message: True)
-def handle_search(message):
-    update_activity(message.chat.id)
-    query = message.text.strip()
-    if len(query) < 2:
-        bot.reply_to(message, "⚠️ Masukkan judul minimal 2 huruf ya!")
-        return
-
-    wait_msg = bot.reply_to(message, f"🔍 <b>Mencari:</b> <i>{query}</i>\n<i>Sedang menembus database LK21 & DrakorKita...</i>")
+def process_search_query(chat_id: int, query: str):
+    """Fungsi pencarian reusable untuk Telegram polling maupun initial wake query"""
+    update_activity(chat_id)
+    wait_msg = bot.send_message(chat_id, f"🔍 <b>Mencari:</b> <i>{query}</i>\n<i>Sedang menembus database LK21 & DrakorKita...</i>")
 
     try:
-        # 1. Cari di LK21 / NontonDrama
         results_lk21 = lk21_engine.search_movies(query)
-        
-        # 2. Cari di DrakorKita
         results_dk = lk21_engine.search_drakorkita(query)
 
         if not results_lk21 and not results_dk:
             err_detail = getattr(lk21_engine, "LAST_ERROR", "Tidak ada error tercatat")
             bot.edit_message_text(
                 f"❌ Judul <b>{query}</b> tidak ditemukan di LK21 maupun DrakorKita.\n\n<code>Info Solver: {err_detail}</code>",
-                chat_id=message.chat.id,
+                chat_id=chat_id,
                 message_id=wait_msg.message_id
             )
             return
 
         markup = InlineKeyboardMarkup()
-
-        # Opsi Sumber 1: LK21 / NontonDrama
         if results_lk21:
             markup.add(InlineKeyboardButton("➖➖ 🌐 LK21 / NONTONDRAMA ➖➖", callback_data="noop"))
             for it in results_lk21[:5]:
@@ -158,7 +148,6 @@ def handle_search(message):
                 cb_data = f"ser:{it['slug']}" if is_series else f"dl:{it['slug']}"
                 markup.add(InlineKeyboardButton(btn_text, callback_data=cb_data))
 
-        # Opsi Sumber 2: Drakor.Kita.Mobi
         if results_dk:
             markup.add(InlineKeyboardButton("➖➖ 🇰🇷 DRAKOR.KITA.MOBI ➖➖", callback_data="noop"))
             for dk in results_dk[:5]:
@@ -169,12 +158,21 @@ def handle_search(message):
         total_found = len(results_lk21) + len(results_dk)
         bot.edit_message_text(
             f"🍿 <b>Ditemukan {total_found} hasil untuk:</b> <i>{query}</i>\nSilakan pilih server sumber di bawah ini:",
-            chat_id=message.chat.id,
+            chat_id=chat_id,
             message_id=wait_msg.message_id,
             reply_markup=markup
         )
     except Exception as e:
-        bot.edit_message_text(f"⚠️ Terjadi kesalahan: {e}", chat_id=message.chat.id, message_id=wait_msg.message_id)
+        bot.edit_message_text(f"⚠️ Terjadi kesalahan: {e}", chat_id=chat_id, message_id=wait_msg.message_id)
+
+@bot.message_handler(func=lambda message: True)
+def handle_search(message):
+    update_activity(message.chat.id)
+    query = message.text.strip()
+    if len(query) < 2:
+        bot.reply_to(message, "⚠️ Masukkan judul minimal 2 huruf ya!")
+        return
+    process_search_query(message.chat.id, query)
 
 @bot.callback_query_handler(func=lambda call: call.data == "noop")
 def handle_noop(call):
@@ -457,6 +455,45 @@ if __name__ == "__main__":
     idle_monitor = threading.Thread(target=idle_checker_thread, daemon=True)
     idle_monitor.start()
     print(f"⏱️ Idle shutdown monitor active (Timeout: {IDLE_TIMEOUT_SECONDS}s / 1 hour).")
+
+    # Cek apakah bot dibangunkan dengan query awal (Wake query flow)
+    wake_chat_id = os.environ.get("WAKE_CHAT_ID", "").strip()
+    wake_query = os.environ.get("WAKE_QUERY", "").strip()
+    wake_msg_id = os.environ.get("WAKE_MSG_ID", "").strip()
+
+    def handle_initial_wake():
+        if not wake_chat_id or not wake_query:
+            return
+        try:
+            cid = int(wake_chat_id)
+            print(f"⚡ Handling initial wake query: '{wake_query}' for chat {cid} (Wake Msg ID: {wake_msg_id})")
+
+            # 1. Hapus pesan "Membangunkan mesin Ciro..."
+            if wake_msg_id and wake_msg_id != "0":
+                try:
+                    bot.delete_message(cid, int(wake_msg_id))
+                    print("🗑️ Deleted wake message")
+                except Exception as e:
+                    print(f"⚠️ Failed to delete wake message: {e}")
+
+            # 2. Kirim pesan "Bot Ciro ON"
+            on_msg = bot.send_message(cid, "🟢 <b>Bot Ciro ON</b>", parse_mode="HTML")
+            time.sleep(1.5)
+
+            # 3. Hapus pesan "Bot Ciro ON"
+            try:
+                bot.delete_message(cid, on_msg.message_id)
+                print("🗑️ Deleted 'Bot Ciro ON' message")
+            except Exception as e:
+                print(f"⚠️ Failed to delete ON message: {e}")
+
+            # 4. Kirim daftar film hasil pencarian!
+            process_search_query(cid, wake_query)
+        except Exception as e:
+            print(f"⚠️ Error handling initial wake: {e}")
+
+    # Jalankan initial wake di thread terpisah agar polling langsung aktif
+    threading.Thread(target=handle_initial_wake, daemon=True).start()
 
     print("🚀 Bot started polling (Interactive Movies & Series Mode)...")
     try:
