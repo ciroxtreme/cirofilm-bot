@@ -36,5 +36,6 @@ jobs:
         env:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN || '9155074189:AAF-D3xWr7r0Qsn3NGD8J-mFwvSjL_XNGug' }}
           WORKER_URL: ${{ secrets.WORKER_URL || 'https://cirofilm-wake.captenciro.workers.dev' }}
+          PROXY_URL: ${{ secrets.PROXY_URL }}
         run: |
           python -u main.py

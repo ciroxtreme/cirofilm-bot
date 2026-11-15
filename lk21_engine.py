@@ -30,6 +30,8 @@ DEFAULT_SITEKEY = "0x4AAAAAAD1B9GOEfUpOVP4w"
 
 LAST_ERROR = ""
 
+PROXY_URL = os.environ.get("PROXY_URL", "").strip()
+
 def fetch_with_cfsolve(target_url: str) -> str:
     """Tembus Cloudflare Challenge halaman menggunakan cfsolve"""
     global LAST_ERROR
@@ -42,6 +44,9 @@ def fetch_with_cfsolve(target_url: str) -> str:
             "--solve",
             "--fingerprint", PROFILE_JSON
         ]
+        if PROXY_URL:
+            cmd.extend(["--proxy", PROXY_URL])
+
         res = subprocess.run(cmd, capture_output=True, text=True, timeout=65)
         if res.returncode != 0:
             LAST_ERROR = f"Exit code {res.returncode}: {res.stderr[:200]}"
@@ -76,6 +81,9 @@ def solve_turnstile_token(page_url: str, sitekey: str = DEFAULT_SITEKEY) -> str:
             "--solve",
             "--fingerprint", PROFILE_JSON
         ]
+        if PROXY_URL:
+            cmd.extend(["--proxy", PROXY_URL])
+
         res = subprocess.run(cmd, capture_output=True, text=True, timeout=50)
         lines = res.stdout.strip().split("\n")
         if lines:
