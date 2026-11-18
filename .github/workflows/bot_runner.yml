@@ -55,7 +55,7 @@ jobs:
 
       - name: Run CiroFilm Bot Engine
         env:
-          BOT_TOKEN: ${{ secrets.BOT_TOKEN || '9155074189:AAF-D3xWr7r0Qsn3NGD8J-mFwvSjL_XNGug' }}
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           WORKER_URL: ${{ secrets.WORKER_URL || 'https://cirofilm-wake.captenciro.workers.dev' }}
           PROXY_URL: socks5://127.0.0.1:40000
           WAKE_CHAT_ID: ${{ github.event.client_payload.chat_id }}

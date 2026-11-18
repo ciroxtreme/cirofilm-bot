@@ -8,7 +8,7 @@ from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 import lk21_engine
 import diag
 
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "9155074189:AAF-D3xWr7r0Qsn3NGD8J-mFwvSjL_XNGug")
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
 WORKER_URL = os.environ.get("WORKER_URL", "https://cirofilm-wake.captenciro.workers.dev")
 bot = telebot.TeleBot(BOT_TOKEN, parse_mode="HTML")
 
